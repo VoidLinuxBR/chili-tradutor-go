@@ -1,76 +1,168 @@
-`
-# chili-tradutor-go 🌶️
+# SPEC — chili-tradutor-go
 
-O chili-tradutor-go é um wrapper universal de tradução automática escrito em Go. Ele foi projetado para traduzir scripts (.sh, .py), arquivos de documentação (Markdown) e arquivos de dados (JSON), mantendo a integridade de variáveis, links e sintaxe técnica.
-
-Sua principal vantagem é o Cache Inteligente v2.1.9, que reduz drasticamente as chamadas de rede e acelera traduções repetitivas através da reutilização de dados locais.
-
-## ✨ Funcionalidades
-
-* Multiformato: Suporte .sh, .py, .md, .json, .yaml.
-* Preservação de Sintaxe: Protege automaticamente variáveis de shell ($VAR, ${VAR}), links Markdown e placeholders de string durante o processo de tradução.
-* Tradução Paralela: Processa múltiplos idiomas simultaneamente usando Goroutines (ajustável via -j).
-* Cache Persistente com Timestamp: Armazena traduções localmente e gerencia o ciclo de vida dos dados, permitindo limpezas inteligentes.
-* Interface Progressiva: Exibição em tempo real do progresso de cada idioma com alinhamento visual perfeito, independente do tamanho do código do idioma (ex: en vs zh-CN).
-
-## 🚀 Instalação
-
-Certifique-se de ter o Go instalado e as dependências de sistema (gettext, trans).
-```bash
-git clone https://github.com/chililinux/chili-tradutor-go.git
-cd chili-tradutor-go/src
-go build -o chili-tradutor-go chili-tradutor-go-v2.1.9.go
-sudo mv chili-tradutor-go /usr/local/bin/
-```
-
-## 🛠️ Uso
-
-### Tradução Básica
-Para traduzir um arquivo para os idiomas padrão (EN, ES, IT, DE, FR, RU, ZH, JA, KO):
-
-chili-tradutor-go -i meu_script.sh
-
-
-### Especificando Idiomas e Motor
-
-cheli-treducer-go -e tutorial.md
-
-
-### Limpeza de cache
-Remova entradas de cache que não foram utilizadas nos últimos 30 dias:
-
-chili-tradutor-go --clean-cache
-
-
-## ⚙️ Opções (Flags)
-
-| Flag | Longa | Descrição |
-| :--- | :--- | :--- |
-| -i | --inputfile | Arquivo fonte para tradução. |
-| -e | --engine | Motor de tradução: google, bing, yandex (padrão: google). |
-| -s | --source | Idioma de origem (ex: pt, en) (padrão: auto). |
-| -l | --language | Lista de idiomas separados por vírgula ou all. |
-| -j | --jobs | Número de traduções simultâneas (padrão: 8). |
-| -f | --force | Força a tradução ignorando o cache local. |
-| | --clean-cache | Remove itens de cache obsoletos (> 30 dias). |
-| -q | --quiet | Modo silencioso (sem progresso visual). |
-| -v | --verbose | Exibe detalhes técnicos durante a execução. |
-| -V | --version | Exibe a versão atual. |
-
-## 📁 Estrutura de Saída
-
-* Scripts/POT: Gera arquivos .po em ./pot/ e arquivos binários .mo em ./usr/share/locale/.
-* Markdown: Gera versões traduzidas em ./doc/ (ex: README-en.md).
-* JSON: Gera versões traduzidas em ./translated/.
-
-## 🛡️ Lógica de cache (v2.1.9)
-
-O cache é armazenado em ~/.cache/chili-tradutor-go/cache.json.
-
-* Migração Automática: Ao detectar registros de versões anteriores (v2.1.8), a ferramenta carimba automaticamente o timestamp atual nos registros legados para evitar a perda de dados históricos.
-* Auto-Update: Cada vez que um item é encontrado no cache, seu timestamp de "Último Uso" é atualizado, protegendo-o de limpezas automáticas futuras.
-* Segurança: A limpeza via --clean-cache só remove o que realmente está em desuso, garantindo que sua base de conhecimento de tradução cresça de forma saudável.
+**Versão do software:** 2.1.20 (2026-02-01)
+**Site:** https://chililinux.com
+**Repositório:** https://github.com/chililinux/chili-tradutor-go
+**Autor:** Vilmar Catafesta <vcatafesta@gmail.com>
+**Licença/Copyright:** Copyright (C) 2019-2026 Vilmar Catafesta
 
 ---
-Desenvolvido por: Vilmar Catafesta <vcatafesta@gmail.com>
-Direitos autorais © 2023-2026 Equipe ChiliLinux
+
+## 1. Visão geral
+
+`chili-tradutor-go` é um wrapper de linha de comando escrito em Go que automatiza a tradução de arquivos de diversos formatos (scripts, documentação, dados estruturados, man pages) para múltiplos idiomas simultaneamente, usando motores de tradução externos (via `translate-shell`) e um sistema de cache em disco para evitar retraduções repetidas.
+
+O programa foi projetado principalmente para localizar projetos de software: extrai strings traduzíveis de código-fonte via `gettext`/`xgettext`, gera arquivos `.po`/`.mo`, e também traduz diretamente documentos (`.md`, `.txt`, `.json`, `.yaml`, `.html`, man pages) sem passar pelo fluxo gettext.
+
+## 2. Objetivos
+
+- Traduzir automaticamente um ou mais arquivos para uma lista configurável de idiomas.
+- Minimizar chamadas de rede reutilizando traduções já feitas (cache persistente).
+- Suportar tanto o fluxo clássico gettext (`.po`/`.mo`, para uso em `i18n` de aplicações) quanto tradução direta de documentos e dados.
+- Processar múltiplos idiomas em paralelo, com progresso visual em tempo real no terminal.
+- Autodetectar o tipo de arquivo (por extensão ou shebang) sem exigir configuração manual.
+
+## 3. Escopo funcional
+
+### 3.1 Formatos de entrada suportados
+
+| Extensão/critério | Tipo detectado | Fluxo de tradução |
+|---|---|---|
+| sem extensão, com shebang (`#!/usr/bin/env python`, etc.) | script (python, php, perl, ruby, javascript, shell) | gettext(`.pot`/`.po`/`.mo`) |
+| sem extensão, sem shebang | texto simples | gettext |
+| `.1` a `.9` | man page | tradução linha a linha com proteção de macros roff |
+| `.sh .py .php .c .cpp .go .pl .rb` | código-fonte | gettext (`.pot`/`.po`/`.mo`) |
+| `.html .htm` | HTML | tradução linha a linha com proteção de tags |
+| `.md .markdown` | Markdown | tradução linha a linha com proteção de blocos de código, preservando prefixos (`#`, `-`, `1.`) |
+| `.txt` | texto simples | tradução linha a linha |
+| `.json` | JSON | tradução recursiva de valores string em mapas |
+| `.yaml .yml` | YAML | tradução recursiva (via parser JSON) |
+| `.pot` | template gettext | copiado para `pot/` e processado como PO |
+| qualquer outra extensão | fallback | tratado como shell/gettext |
+
+### 3.2 Fluxo de execução (por arquivo)
+
+1. Verifica se o arquivo existe.
+2. Detecta tipo (`detectFileType`) e prepara diretório de saída correspondente (`pot/`, `doc/`, `txt/`, `json/`, `yml/`, `html/`, `man/`).
+3. Para o fluxo gettext: executa `xgettext` para extrair strings e gera cabeçalho POT padronizado (`stampPotHeader`).
+4. Verifica se há conteúdo real a ser traduzido (`hasActualContent`); se não houver, ele limpa artefatos vazios e aborta o arquivo com aviso.
+5. Dispara uma goroutine por idioma-alvo, limitada por um semáforo de tamanho `jobs` (`-j`, padrão 8).
+6. Cada goroutine chama a rotina de tradução específica do formato (`translateManPage`, `translateHTML`, `translateMarkdown`, `translatePlaintext`, `translateJSON`, ou o trio `prepareMsginit`/`translateFile`/`writeMsgfmtToMo` para o fluxo gettext).
+7. Cada string/linha/msgid é passada por `callUniversalTranslator`, que:
+   - normaliza e consulta o cache local antes de qualquer chamada de rede;
+   - protege variáveis, placeholders de formatação, links e URLs antes de enviar ao motor de tradução (`protectVariables`/`restoreVariables`);
+   - invoca `trans` (translate-shell) com até 3 tentativas e backoff progressivo;
+   - grava o resultado no cache (`~/.cache/chili-tradutor-go/cache.json`).
+8. Progresso é exibido em tempo real por idioma usando códigos de escape ANSI para reposicionar o cursor em uma área multi-linha do terminal.
+9. Ao final de cada arquivo, exibe estatísticas rápidas (tempo, hits de cache, chamadas de rede).
+10. Ao final de todos os arquivos (se mais de um), exibe um resumo executivo global.
+
+### 3.3 Sistema de cache
+
+- Local: `$HOME/.cache/chili-tradutor-go/cache.json`.
+- Estrutura: `map[idioma]map[textoNormalizado]CacheEntry{Value, LastUsed}`.
+- Carregado uma vez no início (`loadCache`) e salvo uma vez ao final da execução normal (`saveCache`, via `defer`).
+- `--force` ignora entradas de cache existentes e força retradução.
+- `--clean-cache` remove entradas não usadas há mais de 30 dias.
+
+### 3.4 Proteção de conteúdo não traduzível
+
+A função `protectVariables` substitui por placeholders (`CHILI_REF_N_CHILI`) antes de enviar texto para o mecanismo de tradução, e depois restaura (`restoreVariables`):
+- Variáveis de shell: `$VAR`, `${VAR}`.
+- Especificadores de formatação simples: `%s`, `%d` (letras minúsculas apenas).
+- Links e imagens Markdown: `[texto](url)`, `![alt](url)`.
+- URLs (`http://`, `https://`).
+
+Formatos específicos adicionam proteção própria antes de delegar para `callUniversalTranslator`:
+- **Man pages:** macros roff (linhas começando com `.`) têm apenas o texto após a macro traduzida; comentários (`\"`) são preservados intactos.
+- **HTML:** tags (`<...>`) são substituídas por placeholders (`CHILI_HTML_N_CHILI`) antes da tradução da linha.
+- **Markdown:** blocos delimitados por ``` ``` ``` não são traduzidos; prefixos de título/lista/numeração são preservados fora da tradução.
+
+### 3.5 Autotestes (`--self-test')
+
+Executa uma bateria simplificada de verificações internas (dependências, ida-e-volta de `protectVariables`/`restoreVariables`) e imprime um relatório OK/FALHA no terminal.
+
+### 3.6 Modo `--self`
+
+Modo especializado para extrair e traduzir as próprias strings do binário `chili-tradutor-go` (usa palavras-chave de extração `T`/`TN` do próprio código-fonte via `xgettext`).
+
+## 4. Interface de linha de comando
+
+```
+chili-tradutor-go -i <arquivo> [opções]
+```
+
+| Flag curta | Flag longa | Descrição | Padrão |
+|---|---|---|---|
+| `-i` | `--inputfile` | Arquivo(s) fonte (aceita múltiplos, também via argumentos posicionais) | — |
+| `-eu` | `--idioma` | Lista de expressões idiomáticas-alvo (ex: `pt_BR,en`) ou `all` | `pt_BR,en,es,it,de,fr,ru,zh_CN,zh_TW,ja,ko` |
+| `-e` | `--engine` | Motor de tradução: `google`, `bing`, `yandex` | `google` |
+| `-j` | `--jobs` | Número de traduções simultâneas (paralelismo por idioma) | `8` |
+| `-s` | `--source` | Idioma de origem | `auto` |
+| `-f` | `--force` | Ignora cache, força nova tradução | `false` |
+| — | `--self` | Extração especializada para o próprio binário | `false` |
+| — | `--self-test` | Executa auto-teste de integridade | `false` |
+| — | `--clean-cache` | Remove entradas de cache não usadas há 30 dias | `false` |
+| `-q` | `--quiet` | Modo silencioso (parcial — ver limitações) | `false` |
+| `-v` | `--verbose` | Modo detalhado (não implementado atualmente) | `false` |
+| `-V` | `--version` | Mostra a versão do programa | — |
+
+Idiomas suportados em `--other language`: `ar bg cs da de el en es et fa fi fr he hi hr hu is it ja ko nl no pl pt_PT pt_BR ro ru sk sv tr uk zh_CN zh_TW`.
+
+## 5. Dependências externas
+
+| Binário | Pacote | Uso |
+|---|---|---|
+| `xgettext` | gettext | extração de string do código-fonte |
+| `msginit` | gettext | inicialização de arquivo `.po` por idioma |
+| `msgfmt` | gettext | compilação `.po` → `.mo` |
+| `gettext` / `ngettext` | gettext | tradução da própria interface do programa (`T`/`TN`) |
+| `trans` | translate-shell | execução da tradução via motor externo |
+
+O programa verifica a presença desses binários na inicialização (`checkDependencies`) e oferece instalação automática via gerenciador de pacotes detectado (`pacman`, `xbps-install`, `apt`, `dnf`), conforme distribuição identificada em `/etc/os-release`.
+
+Também verifica conectividade com a internet no início da execução (`checkInternet`, teste TCP contra `8.8.8.8:53`); se offline, o cache ainda é consultado, mas textos sem entrada em cache são retornados sem tradução.
+
+## 6. Saídas geradas
+
+| Tipo de entrada | Diretório de saída | Padrão de nome |
+|---|---|---|
+| gettext (código) | `pot/`, `usr/share/locale/<lang>/LC_MESSAGES/` | `<pot>.pot`, `<base>-<lang>.po`, `<base>.mo` |
+| Página de manual | `homem/` | `<base>-<lang>.<n>` |
+| HTML | `html/` | `<base>-<lang>.html` |
+| Remarcação | `doc/` | `<base>-<lang>.md` |
+| Texto simples | `txt/` | `<base>-<lang>.txt` |
+| JSON | `json/` | `<base>-<lang>.json` |
+| YAML | `yml/` | `<base>-<lang>.yml` |
+
+## 7. Saída de terminal
+
+- Cabeçalho com nome/versão, tipo de arquivo detectado, motor, idioma de origem, número de jobs e caminho do cache.
+- Lista inicial de idiomas-alvo com status "[Aguardando...]".
+- Barra de progresso por idioma, atualizada in-place via escape codes ANSI (`\033[nA`, `\033[K`, `\033[nB`), mostrando idioma, barra percentual e sufixo do formato (`MD`, `TXT`, `HTML`, `MAN`, `PO`, `JSON`, `OK`).
+- Estatísticas rápidas por arquivo: tempo decorrido, hits de cache (%), chamadas de rede (%), total.
+- Resumo executivo final (somente se mais de um arquivo processado): tempo total, cache hits, chamadas de rede, falhas (se houver).
+- Uso de cores via `github.com/fatih/color`: ciano (destaque), verde (sucesso), amarelo (aviso/status), vermelho (erro), azul (info secundária).
+
+## 8. Concorrência
+
+- Um `sync.WaitGroup` + canal semáforo (`chan struct{}, jobs`) limitam quantos idiomas são traduzidos simultaneamente por arquivo.
+- `sync.Mutex` (`mu`) protege acesso ao mapa de cache compartilhado.
+- `sync.Mutex` (`muConsole`) serializa escrita no terminal entre goroutines.
+- Contador de idiomas concluídos (`langsDone`) usa `sync/atomic`.
+
+## 9. Limitações conhecidas (v2.1.20)
+
+- Arquivos `.yaml`/`.yml` são desserializados com `encoding/json`, funcionando apenas para YAML compatível com sintaxe JSON.
+- `translateMap` não percorre arrays (`[]interface{}`), apenas mapas.
+- Blocos `<script>`/`<style>` em HTML e trechos de código inline (`` `código` ``) em Markdown não são protegidos contra tradução.
+- Flag `--verbose` está presente na CLI mas sem efeito no comportamento atual.
+- `--quiet` suprime apenas as barras de progresso, não as demais mensagens de cabeçalho/resumo.
+- Sem suporte a engines de tradução além dos aceitos pelo `translate-shell` (`google`, `bing`, `yandex`).
+- Sem tratamento de sinais (`SIGINT`/`SIGTERM`) para flush do cache em interrupção manual.
+
+## 10. Requisitos ambientais
+
+- Go 1.x (build), sistema Linux (uso de `/etc/os-release`, `LC_ALL=C` para isolamento de locale nos subprocessos).
+- Acesso à internet para tradução (modo offline funciona apenas com cache pré-populado).
+- Permissão de escrita em `$HOME/.cache/chili-tradutor-go/` e no diretório de trabalho atual (para `pot/`, `doc/`, `txt/`, `json/`, `yml/`, `html/`, `man/`, `usr/`).
