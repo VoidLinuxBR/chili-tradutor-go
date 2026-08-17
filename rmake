@@ -334,15 +334,30 @@ set_varcolors
 #sh_checkroot "$@"
 
 ##########################################################################################################
-#######################################################################################
+
 out="${2:-${1%.go}}"
 msg "Compiling : ${cyan}$1"
 msg "Out       : ${cyan}${out}"
 
-if go build -o "$out" "$1"; then
-   msg "Build     : ${green}OK"
-   ls -la --color=auto "$out"
-else
-   msg "Build     : ${red}FAILED"
+if ! gofmt -l "$1" ; then
+  exit 0
 fi
 
+if go build -o "$out" "$1"; then
+  msg "Build     : ${green}OK"
+  ls -la --color=auto "$out"
+  mkdir -p pot/
+  xgettext --verbose \
+    --from-code=UTF-8 \
+    --language=C \
+    --keyword=T \
+    --no-wrap -o pot/chili-tradutor-go.pot "$1"
+  mkdir -p usr/local/bin/
+  bin_name="${out##*/}"
+  [[ $bin_name =~ ^(.+)-v?[0-9][0-9.]*$ ]] && bin_name="${BASH_REMATCH[1]}"
+  strip -sv "$out"
+  cp -v "$out" usr/local/bin/$bin_name
+  sudo cp -v "$out" /usr/local/bin/$bin_name
+else
+  msg "Build     : ${red}FAILED"
+fi
