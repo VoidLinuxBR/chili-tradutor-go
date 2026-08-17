@@ -11,7 +11,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: none\n"
+"Language: ja\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
 #: chili-tradutor-go.go:218 chili-tradutor-go.go:266 chili-tradutor-go.go:693
@@ -21,368 +21,370 @@ msgstr ""
 #: chili-tradutor-go.go:1135 chili-tradutor-go.go:1150
 #: chili-tradutor-go.go:1157
 msgid "ERRO:"
-msgstr ""
+msgstr "エラー："
 
 #: chili-tradutor-go.go:218
 msgid "Não foi possível carregar o glossário"
-msgstr ""
+msgstr "用語集をロードできません"
 
 #: chili-tradutor-go.go:222
 msgid "Glossário carregado"
-msgstr ""
+msgstr "用語集が読み込まれました"
 
 #: chili-tradutor-go.go:222
 msgid "termo(s)"
-msgstr ""
+msgstr "条項）"
 
 #: chili-tradutor-go.go:227
 msgid "[DRY-RUN]"
-msgstr ""
+msgstr "［ドライラン］"
 
 #: chili-tradutor-go.go:227
 msgid "Simulação ativa: nenhuma chamada de rede ou gravação real será feita."
-msgstr ""
+msgstr "アクティブ シミュレーション: ネットワーク呼び出しや実際の録音は行われません。"
 
 #: chili-tradutor-go.go:259
 msgid "Todos os arquivos foram processados!"
-msgstr ""
+msgstr "すべてのファイルが処理されました!"
 
 #: chili-tradutor-go.go:266
 msgid "Arquivo não encontrado:"
-msgstr ""
+msgstr "ファイルが見つかりません："
 
 #: chili-tradutor-go.go:283 chili-tradutor-go.go:566 chili-tradutor-go.go:638
 #: chili-tradutor-go.go:641 chili-tradutor-go.go:1569
 msgid "[AVISO]"
-msgstr ""
+msgstr "[知らせ]"
 
 #: chili-tradutor-go.go:283
 msgid "Nada para traduzir ou arquivo protegido."
-msgstr ""
+msgstr "翻訳するものやファイルが保護されていません。"
 
 #: chili-tradutor-go.go:286
 msgid "[STEP 2]"
-msgstr ""
+msgstr "【ステップ2】"
 
 #: chili-tradutor-go.go:286
 msgid "Iniciando processamento paralelo..."
-msgstr ""
+msgstr "並列処理を開始しています..."
 
 #: chili-tradutor-go.go:288
 msgid "[Aguardando...]"
-msgstr ""
+msgstr "[待っている...]"
 
 #: chili-tradutor-go.go:356
 msgid "Dependências e Conectividade"
-msgstr ""
+msgstr "依存関係と接続性"
 
 #: chili-tradutor-go.go:360
 msgid "Proteção de Variáveis ($VAR)"
-msgstr ""
+msgstr "変数保護 ($VAR)"
 
 #: chili-tradutor-go.go:370
 msgid "SISTEMA 100% VALIDADO EM TODOS OS NÍVEIS."
-msgstr ""
+msgstr "あらゆるレベルで100%検証されたシステム。"
 
 #: chili-tradutor-go.go:464
 msgid "[STATUS]"
-msgstr ""
+msgstr "[状態]"
 
 #: chili-tradutor-go.go:464
 msgid "idiomas concluídos..."
-msgstr ""
+msgstr "言語が完了しました..."
 
 #: chili-tradutor-go.go:605
 msgid "Arquivo fonte"
-msgstr ""
+msgstr "ソースファイル"
 
 #: chili-tradutor-go.go:606
 msgid "Motor de tradução"
-msgstr ""
+msgstr "翻訳エンジン"
 
 #: chili-tradutor-go.go:607
 msgid "Idioma de origem"
-msgstr ""
+msgstr "ソース言語"
 
 #: chili-tradutor-go.go:608
 msgid "Idiomas destino"
-msgstr ""
+msgstr "対象言語"
 
 #: chili-tradutor-go.go:609
 msgid "Traduções simultâneas"
-msgstr ""
+msgstr "同時通訳"
 
 #: chili-tradutor-go.go:610
 msgid "Ignora o cache"
-msgstr ""
+msgstr "キャッシュをバイパスする"
 
 #: chili-tradutor-go.go:611
 msgid "Limpa cache antigo"
-msgstr ""
+msgstr "古いキャッシュをクリアする"
 
 #: chili-tradutor-go.go:612 chili-tradutor-go.go:1710
 msgid "Extração especializada para o próprio chili-tradutor-go"
-msgstr ""
+msgstr "chili-translator-go 自体に特化した抽出"
 
 #: chili-tradutor-go.go:613 chili-tradutor-go.go:1711
 msgid "Executa auto-teste de integridade"
-msgstr ""
+msgstr "整合性セルフテストを実行します"
 
 #: chili-tradutor-go.go:614 chili-tradutor-go.go:1715
 msgid "Modo silencioso"
-msgstr ""
+msgstr "サイレントモード"
 
 #: chili-tradutor-go.go:615
 msgid "Modo detalhado"
-msgstr ""
+msgstr "詳細モード"
 
 #: chili-tradutor-go.go:616
 msgid "Mostra versão"
-msgstr ""
+msgstr "バージョンを表示"
 
 #: chili-tradutor-go.go:617 chili-tradutor-go.go:1713
 msgid "Simula a execução sem chamadas de rede nem gravação de arquivos"
-msgstr ""
+msgstr "ネットワーク呼び出しやファイルの書き込みを行わずに実行をシミュレートします"
 
 #: chili-tradutor-go.go:618
-msgid "Arquivo com termos que nunca devem ser traduzidos (um 'termo' ou 'termo=tradução_fixa' por linha)"
-msgstr ""
+msgid ""
+"Arquivo com termos que nunca devem ser traduzidos (um 'termo' ou "
+"'termo=tradução_fixa' por linha)"
+msgstr "決して翻訳すべきではない用語を含むファイル (1 行に 1 つの「用語」または「term=fixed_translation」)"
 
 #: chili-tradutor-go.go:638
 msgid "--jobs deve ser >= 1; usando o padrão 8."
-msgstr ""
+msgstr "--jobs は 1 以上である必要があります。パターン8を使用します。"
 
 #: chili-tradutor-go.go:641
 #, go-format
 msgid "--jobs limitado a %d."
-msgstr ""
+msgstr "--ジョブは %d に制限されます。"
 
 #: chili-tradutor-go.go:693
 msgid "Falha ao copiar arquivo .pot"
-msgstr ""
+msgstr ".pot ファイルのコピーに失敗しました"
 
 #: chili-tradutor-go.go:748 chili-tradutor-go.go:821 chili-tradutor-go.go:878
 #: chili-tradutor-go.go:902 chili-tradutor-go.go:1157
 msgid "Não foi possível gravar"
-msgstr ""
+msgstr "録音できません"
 
 #: chili-tradutor-go.go:964
 msgid "Não foi possível abrir"
-msgstr ""
+msgstr "開けません"
 
 #: chili-tradutor-go.go:972
 msgid "Não foi possível criar"
-msgstr ""
+msgstr "作成できません"
 
 #: chili-tradutor-go.go:1118
 msgid "Não foi possível ler"
-msgstr ""
+msgstr "読めません"
 
 #: chili-tradutor-go.go:1129
 msgid "YAML inválido em"
-msgstr ""
+msgstr "無効な YAML"
 
 #: chili-tradutor-go.go:1135
 msgid "JSON inválido em"
-msgstr ""
+msgstr "無効なJSON"
 
 #: chili-tradutor-go.go:1150
 msgid "Falha ao gerar saída para"
-msgstr ""
+msgstr "の出力の生成に失敗しました"
 
 #: chili-tradutor-go.go:1446
 #, go-format
 msgid "Script (%s)"
-msgstr ""
+msgstr "スクリプト (%s)"
 
 #: chili-tradutor-go.go:1448
 msgid "Texto Simples (sem extensão)"
-msgstr ""
+msgstr "プレーンテキスト (拡張子なし)"
 
 #: chili-tradutor-go.go:1454
 #, go-format
 msgid "Manual do Linux (%s)"
-msgstr ""
+msgstr "Linux のマニュアル (%s)"
 
 #: chili-tradutor-go.go:1464
 #, go-format
 msgid "Código %s (%s)"
-msgstr ""
+msgstr "コード %s (%s)"
 
 #: chili-tradutor-go.go:1468
 msgid "Markdown"
-msgstr ""
+msgstr "マークダウン"
 
 #: chili-tradutor-go.go:1469
 msgid "Texto Simples"
-msgstr ""
+msgstr "プレーンテキスト"
 
 #: chili-tradutor-go.go:1470
 msgid "JSON"
-msgstr ""
+msgstr "JSON"
 
 #: chili-tradutor-go.go:1471
 msgid "YAML"
-msgstr ""
+msgstr "YAML"
 
 #: chili-tradutor-go.go:1472
 msgid "Template POT"
-msgstr ""
+msgstr "POTテンプレート"
 
 #: chili-tradutor-go.go:1475
 #, go-format
 msgid "Arquivo %s"
-msgstr ""
+msgstr "%s ファイル"
 
 #: chili-tradutor-go.go:1535
 msgid "Dependências ausentes: "
-msgstr ""
+msgstr "不足している依存関係:"
 
 #: chili-tradutor-go.go:1545
 msgid "Deseja instalar automaticamente para"
-msgstr ""
+msgstr "自動的にインストールしますか?"
 
 #: chili-tradutor-go.go:1569
 msgid "Interrompido — salvando cache antes de encerrar..."
-msgstr ""
+msgstr "停止しました — シャットダウンする前にキャッシュを保存しています..."
 
 #: chili-tradutor-go.go:1632
 msgid "[STEP 1]"
-msgstr ""
+msgstr "【ステップ1】"
 
 #: chili-tradutor-go.go:1632
 msgid "Ambiente preparado com sucesso."
-msgstr ""
+msgstr "環境が正常に準備されました。"
 
 #: chili-tradutor-go.go:1633
 msgid "Arquivo"
-msgstr ""
+msgstr "ファイル"
 
 #: chili-tradutor-go.go:1634
 msgid "Tipo"
-msgstr ""
+msgstr "タイプ"
 
 #: chili-tradutor-go.go:1635
 msgid "Motor"
-msgstr ""
+msgstr "モーター"
 
 #: chili-tradutor-go.go:1636
 msgid "Origem"
-msgstr ""
+msgstr "起源"
 
 #: chili-tradutor-go.go:1636
 msgid "Auto-detect se auto"
-msgstr ""
+msgstr "自分自身かどうかを自動検出"
 
 #: chili-tradutor-go.go:1637
 msgid "Jobs"
-msgstr ""
+msgstr "求人"
 
 #: chili-tradutor-go.go:1638
 msgid "Cache"
-msgstr ""
+msgstr "キャッシュ"
 
 #: chili-tradutor-go.go:1658
 msgid "Concluído"
-msgstr ""
+msgstr "完了"
 
 #: chili-tradutor-go.go:1659
 msgid "Cache:"
-msgstr ""
+msgstr "キャッシュ："
 
 #: chili-tradutor-go.go:1660
 msgid "Net:"
-msgstr ""
+msgstr "ネット："
 
 #: chili-tradutor-go.go:1661
 msgid "Glossário:"
-msgstr ""
+msgstr "用語集:"
 
 #: chili-tradutor-go.go:1662
 msgid "Total:"
-msgstr ""
+msgstr "合計："
 
 #: chili-tradutor-go.go:1669
 msgid "RESUMO EXECUTIVO FINAL:"
-msgstr ""
+msgstr "最終的なエグゼクティブサマリー:"
 
 #: chili-tradutor-go.go:1670
 msgid "Tempo Total"
-msgstr ""
+msgstr "合計時間"
 
 #: chili-tradutor-go.go:1671
 msgid "Cache Hits"
-msgstr ""
+msgstr "キャッシュヒット"
 
 #: chili-tradutor-go.go:1672
 msgid "Chamadas Rede"
-msgstr ""
+msgstr "ネットワーク通話"
 
 #: chili-tradutor-go.go:1674
 msgid "Acertos Glossário"
-msgstr ""
+msgstr "用語集の設定"
 
 #: chili-tradutor-go.go:1677
 msgid "Falhas"
-msgstr ""
+msgstr "故障"
 
 #: chili-tradutor-go.go:1693
 msgid "Removidos"
-msgstr ""
+msgstr "削除されました"
 
 #: chili-tradutor-go.go:1693
 msgid "itens obsoletos do cache."
-msgstr ""
+msgstr "古いキャッシュ項目。"
 
 #: chili-tradutor-go.go:1700
 msgid "Uso"
-msgstr ""
+msgstr "使用"
 
 #: chili-tradutor-go.go:1700
 msgid "<arquivo> [opções]"
-msgstr ""
+msgstr "<ファイル> [オプション]"
 
 #: chili-tradutor-go.go:1701
 msgid "Opções"
-msgstr ""
+msgstr "オプション"
 
 #: chili-tradutor-go.go:1704
 msgid "Arquivo fonte (.sh, .py, .md, .txt, .json, .yaml, .html, .pot, .[1-9])"
-msgstr ""
+msgstr "Arquivo fonte (.sh、.py、.md、.txt、.json、.yaml、.html、.pot、.[1-9])"
 
 #: chili-tradutor-go.go:1705
 #, go-format
 msgid "Idiomas (ex: pt_BR,en) ou 'all' (padrão: %s)"
-msgstr ""
+msgstr "言語 (例: pt_BR,en) または「すべて」 (デフォルト: %s)"
 
 #: chili-tradutor-go.go:1706
 msgid "Motor: google, bing, yandex (padrão: google)"
-msgstr ""
+msgstr "エンジン: Google、bing、yandex (デフォルト: Google)"
 
 #: chili-tradutor-go.go:1707
 msgid "Traduções simultâneas (padrão: 8)"
-msgstr ""
+msgstr "同時翻訳数 (デフォルト: 8)"
 
 #: chili-tradutor-go.go:1708
 msgid "Idioma de origem (ex: pt, en) (padrão: auto)"
-msgstr ""
+msgstr "ソース言語 (例: pt、en) (デフォルト: auto)"
 
 #: chili-tradutor-go.go:1709
 msgid "Força nova tradução (ignora cache)"
-msgstr ""
+msgstr "新しい変換を強制する (キャッシュをバイパス)"
 
 #: chili-tradutor-go.go:1712
 msgid "Remove entradas de cache não usadas há 30 dias"
-msgstr ""
+msgstr "30 日間使用されなかったキャッシュ エントリを削除します"
 
 #: chili-tradutor-go.go:1714
 msgid "Arquivo de termos protegidos (termo | termo=tradução | termo=en:x;fr:y)"
-msgstr ""
+msgstr "保護された用語ファイル (term | term=translation | term=en:x;fr:y)"
 
 #: chili-tradutor-go.go:1716
 msgid "Mostrar detalhes"
-msgstr ""
+msgstr "詳細を表示"
 
 #: chili-tradutor-go.go:1717
 msgid "Mostra a versão do programa"
-msgstr ""
+msgstr "プログラムのバージョンを表示します"

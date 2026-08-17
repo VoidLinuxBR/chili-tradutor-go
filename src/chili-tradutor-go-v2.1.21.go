@@ -8,6 +8,18 @@
     Updated:   dom 16 ago 2026 (patch de correções — ver CORRECOES.md)
     Version:   2.1.21
 
+    Changelog 2.1.21 (correções sobre a 2.1.20, após varredura da rodada de features):
+      - dryWriteFile() tinha erro ignorado em translateManPage/HTML/Markdown/Plaintext
+      - --dry-run era parcial: setupEnvironment/prepareMsginit/translateFile ainda
+        gravavam artefatos reais do pipeline gettext (.pot/.po) mesmo em modo simulação
+      - variável 'net' em showQuickStats sombreava o pacote "net" importado
+      - glossário: \b (RE2) falhava em termos que começam/terminam com letra acentuada
+        (café, ação, não); substituído por checagem manual de fronteira Unicode
+      - glossário: "termo=tradução" agora aceita também "termo=idioma:trad;idioma2:trad2"
+        para traduções fixas diferentes por idioma-alvo
+      - --dry-run não exercitava a proteção de glossário por substring (só o match exato)
+      - acertos de glossário não entravam nas estatísticas de cache/rede exibidas
+
     Changelog 2.1.21 (correções sobre a 2.1.20):
       - BUG-01: --clean-cache e --self-test não persistiam o cache (os.Exit pulava defer)
       - BUG-02: data race em cacheHits/netCalls (agora atômicos)
@@ -33,12 +45,16 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal" // FEATURE: tratamento de SIGINT/SIGTERM (salva cache antes de encerrar)
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall" // FEATURE: idem
 	"time"
+	"unicode"     // BUGFIX: fronteira de palavra manual no glossário (termos acentuados)
+	"unicode/utf8" // BUGFIX: idem
 
 	"github.com/fatih/color"
 	"github.com/spf13/pflag"
@@ -81,6 +97,10 @@ var (
 	cleanCacheFlag bool
 	selfFlag       bool
 	selfTestFlag   bool
+	dryRunFlag     bool // FEATURE: --dry-run
+	glossaryPath   string
+	glossary       map[string]glossaryEntry // FEATURE: --glossary (match exato do texto inteiro)
+	glossaryRules  []glossaryRule           // FEATURE: --glossary (match de termo dentro de frases)
 	languages      []string
 	targetLangs    []string
 	cacheFile      string
@@ -91,6 +111,8 @@ var (
 	netCalls       int64 // BUGFIX: idem.
 	fileCacheHits  int64 // BUGFIX: contador por-arquivo, resetado a cada processSingleFile.
 	fileNetCalls   int64 // BUGFIX: idem — antes showQuickStats exibia totais acumulados de todos os arquivos.
+	glossaryHits   int64 // BUGFIX: contador de acertos de glossário, antes não entrava nas estatísticas.
+	fileGlossaryHits int64 // BUGFIX: idem, por-arquivo.
 	failedCalls    int32
 	isOnline       bool
 	langsDone      int32
@@ -107,6 +129,17 @@ var supportedLanguages = []string{
 var defaultLanguages = []string{"pt_BR", "en", "es", "it", "de", "fr", "ru", "zh_CN", "zh_TW", "ja", "ko"}
 
 // --- FUNÇÃO DE EXECUÇÃO COM ISOLAMENTO DE LOCALE ---
+
+// dryWriteFile grava o arquivo normalmente, exceto em --dry-run, onde apenas registra
+// (via logVerbose) o que seria gravado, sem tocar o disco. Centraliza esse comportamento
+// para todos os formatos de saída de documento (HTML, Markdown, TXT, JSON/YAML, man page).
+func dryWriteFile(path string, data []byte) error {
+	if dryRunFlag {
+		logVerbose("[DRY-RUN] gravaria %d bytes em %s", len(data), path)
+		return nil
+	}
+	return os.WriteFile(path, data, 0644)
+}
 
 func execCommand(name string, args ...string) *exec.Cmd {
 	cmd := exec.Command(name, args...)
@@ -157,8 +190,26 @@ func main() {
 		os.Exit(0)
 	}
 
+	// FEATURE (--glossary): carrega o glossário de termos protegidos, se informado.
+	if err := loadGlossary(glossaryPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível carregar o glossário")), yellow(glossaryPath), err)
+		os.Exit(1)
+	}
+	if len(glossary) > 0 && !quietFlag {
+		fmt.Printf("%s %s: %d %s\n", cyan(">>"), white(T("Glossário carregado")), len(glossary), T("termo(s)"))
+	}
+
+	// FEATURE (--dry-run): avisa o usuário que nenhuma chamada de rede/gravação real ocorrerá.
+	if dryRunFlag && !quietFlag {
+		fmt.Printf("%s %s\n", yellow(T("[DRY-RUN]")), white(T("Simulação ativa: nenhuma chamada de rede ou gravação real será feita.")))
+	}
+
 	loadCache()
 	defer saveCache()
+
+	// FEATURE: salva o cache automaticamente em caso de Ctrl+C (SIGINT) ou SIGTERM,
+	// evitando perder as traduções já obtidas em uma execução longa interrompida.
+	setupSignalHandler()
 
 	if selfTestFlag {
 		runFullSelfTest()
@@ -195,8 +246,9 @@ func processSingleFile(path string) {
 
 	currentFile = path
 	langsDone = 0
-	atomic.StoreInt64(&fileCacheHits, 0) // BUGFIX: reseta estatísticas por-arquivo
-	atomic.StoreInt64(&fileNetCalls, 0)  // BUGFIX: idem
+	atomic.StoreInt64(&fileCacheHits, 0)    // BUGFIX: reseta estatísticas por-arquivo
+	atomic.StoreInt64(&fileNetCalls, 0)     // BUGFIX: idem
+	atomic.StoreInt64(&fileGlossaryHits, 0) // BUGFIX: idem
 	ext, langName, desc := detectFileType(path)
 	baseName := filepath.Base(path)
 	setupEnvironment(ext, baseName, langName)
@@ -249,7 +301,7 @@ func runFullSelfTest() {
 
 	fmt.Printf("    %s %-35s ", blue("→"), T("Proteção de Variáveis ($VAR)"))
 	orig := "User $USER em https://chili.com com %d"
-	prot, marks := protectVariables(orig)
+	prot, marks := protectVariables(orig, "")
 	rest := restoreVariables(prot, marks)
 	if orig == rest && strings.Contains(prot, "CHILI_REF") {
 		fmt.Println(green("OK"))
@@ -364,6 +416,15 @@ func callUniversalTranslator(text, lang string) string {
 	if text == "" {
 		return ""
 	}
+
+	// FEATURE (glossário): se o texto inteiro corresponde a um termo do glossário,
+	// resolve direto sem cache nem rede — glossário sempre tem prioridade.
+	if fixed, ok := glossaryExactMatch(text, lang); ok {
+		atomic.AddInt64(&glossaryHits, 1)     // BUGFIX: antes não entrava nas estatísticas
+		atomic.AddInt64(&fileGlossaryHits, 1) // BUGFIX: idem, por-arquivo
+		return fixed
+	}
+
 	normID := strings.ToLower(text)
 	mu.Lock()
 	if cacheData == nil {
@@ -385,8 +446,23 @@ func callUniversalTranslator(text, lang string) string {
 		return text
 	}
 
+	// FEATURE (--dry-run): simula a tradução sem chamar rede nem gravar no cache.
+	if dryRunFlag {
+		atomic.AddInt64(&netCalls, 1)
+		atomic.AddInt64(&fileNetCalls, 1)
+		// BUGFIX: antes, o dry-run só testava o match EXATO do glossário; a proteção de
+		// termos DENTRO de frases (protectVariables/protectGlossaryTerms) só rodava no
+		// caminho real de tradução, então o usuário não conseguia validar via --dry-run
+		// se um termo em meio a uma frase seria protegido corretamente. Agora aplicamos
+		// a mesma proteção e mostramos o resultado (com as traduções fixas do glossário
+		// já substituídas), sem chamar rede.
+		protectedText, placeholders := protectVariables(text, lang)
+		simulated := restoreVariables(protectedText, placeholders)
+		return fmt.Sprintf("[DRY-RUN:%s] %s", lang, simulated)
+	}
+
 	transLang := strings.ReplaceAll(lang, "_", "-")
-	protectedText, placeholders := protectVariables(text)
+	protectedText, placeholders := protectVariables(text, lang)
 	var res string
 	var err error
 	for i := 0; i < 3; i++ {
@@ -445,6 +521,11 @@ func prepareGettextSelf(inputPath string) {
 func writeMsgfmtToMo(base, lang string) {
 	cleanBase := strings.TrimSuffix(base, filepath.Ext(base))
 	dir := filepath.Join("usr/share/locale", lang, "LC_MESSAGES")
+	if dryRunFlag {
+		// FEATURE (--dry-run): não cria diretórios nem roda msgfmt (não gera .mo real).
+		logVerbose("[DRY-RUN] não geraria %s", filepath.Join(dir, cleanBase+".mo"))
+		return
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		reportCmdError("mkdir "+dir, err)
 		return
@@ -469,6 +550,8 @@ func parseFlags() {
 	pflag.BoolVarP(&quietFlag, "quiet", "q", false, T("Modo silencioso"))
 	pflag.BoolVarP(&verboseFlag, "verbose", "v", false, T("Modo detalhado"))
 	pflag.BoolVarP(&versionFlag, "version", "V", false, T("Mostra versão"))
+	pflag.BoolVar(&dryRunFlag, "dry-run", false, T("Simula a execução sem chamadas de rede nem gravação de arquivos"))
+	pflag.StringVar(&glossaryPath, "glossary", "", T("Arquivo com termos que nunca devem ser traduzidos (um 'termo' ou 'termo=tradução_fixa' por linha)"))
 	pflag.Parse()
 
 	targetLangs = defaultLanguages
@@ -498,24 +581,43 @@ func parseFlags() {
 
 func setupEnvironment(ext, baseName, langName string) {
 	isMan, _ := regexp.MatchString(`^\.[1-9]$`, ext)
-	
+
 	if isMan {
-		os.MkdirAll("man", 0755)
+		if !dryRunFlag { // BUGFIX: --dry-run não criava mais os arquivos de saída, mas ainda
+			os.MkdirAll("man", 0755) // criava os diretórios e (no fluxo gettext) o .pot real
+		}
 		return
 	}
 
 	switch ext {
 	case ".md", ".markdown":
-		os.MkdirAll("doc", 0755)
+		if !dryRunFlag {
+			os.MkdirAll("doc", 0755)
+		}
 	case ".txt":
-		os.MkdirAll("txt", 0755)
+		if !dryRunFlag {
+			os.MkdirAll("txt", 0755)
+		}
 	case ".json":
-		os.MkdirAll("json", 0755)
+		if !dryRunFlag {
+			os.MkdirAll("json", 0755)
+		}
 	case ".yaml", ".yml":
-		os.MkdirAll("yml", 0755)
+		if !dryRunFlag {
+			os.MkdirAll("yml", 0755)
+		}
 	case ".html", ".htm":
-		os.MkdirAll("html", 0755)
+		if !dryRunFlag {
+			os.MkdirAll("html", 0755)
+		}
 	default:
+		if dryRunFlag {
+			// BUGFIX: antes, mesmo em --dry-run, esta branch rodava xgettext de verdade
+			// (gravando um .pot real) e copiava arquivos .pot de entrada para pot/.
+			// Agora --dry-run também pula o preparo do pipeline gettext.
+			logVerbose("[DRY-RUN] preparo do pipeline gettext (.pot/xgettext) pulado para %s", baseName)
+			return
+		}
 		os.MkdirAll("pot", 0755)
 		targetPot := filepath.Join("pot", baseName)
 		if ext == ".pot" {
@@ -577,19 +679,50 @@ func translateManPage(inputPath, lang string) {
 	ext := filepath.Ext(inputPath)
 	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
 	outFile := filepath.Join("man", fmt.Sprintf("%s-%s%s", base, lang, ext))
-	os.WriteFile(outFile, []byte(strings.Join(translatedLines, "\n")), 0644)
+	if err := dryWriteFile(outFile, []byte(strings.Join(translatedLines, "\n"))); err != nil { // BUGFIX: erro antes era ignorado
+		logVerbose("gravação de %s: %v", outFile, err)
+		fmt.Printf("%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível gravar")), yellow(outFile), err)
+	}
 	updateProgress(lang, len(lines), len(lines), "OK")
 }
 
 func translateHTML(inputPath, lang string) {
 	content, err := os.ReadFile(inputPath)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	lines := strings.Split(string(content), "\n")
 	var translatedLines []string
 	reTag := regexp.MustCompile(`(?s)<.*?>`)
 
+	// FEATURE: nunca traduzir o conteúdo de <script>...</script> e <style>...</style> —
+	// antes, o código JS/CSS dentro desses blocos era enviado ao motor de tradução como
+	// se fosse texto comum, corrompendo o arquivo.
+	reScriptOpen := regexp.MustCompile(`(?i)<script[^>]*>`)
+	reScriptClose := regexp.MustCompile(`(?i)</script\s*>`)
+	reStyleOpen := regexp.MustCompile(`(?i)<style[^>]*>`)
+	reStyleClose := regexp.MustCompile(`(?i)</style\s*>`)
+	inRawBlock := false
+
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
+
+		if !inRawBlock && (reScriptOpen.MatchString(line) || reStyleOpen.MatchString(line)) {
+			inRawBlock = true
+			translatedLines = append(translatedLines, line)
+			if reScriptClose.MatchString(line) || reStyleClose.MatchString(line) {
+				inRawBlock = false // abre e fecha na mesma linha
+			}
+			continue
+		}
+		if inRawBlock {
+			translatedLines = append(translatedLines, line)
+			if reScriptClose.MatchString(line) || reStyleClose.MatchString(line) {
+				inRawBlock = false
+			}
+			continue
+		}
+
 		if trimmed == "" {
 			translatedLines = append(translatedLines, line)
 			continue
@@ -612,12 +745,17 @@ func translateHTML(inputPath, lang string) {
 		} else {
 			translatedLines = append(translatedLines, line)
 		}
-		if i%5 == 0 || i == len(lines)-1 { updateProgress(lang, i+1, len(lines), "HTML") }
+		if i%5 == 0 || i == len(lines)-1 {
+			updateProgress(lang, i+1, len(lines), "HTML")
+		}
 	}
 	ext := filepath.Ext(inputPath)
 	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
 	outFile := filepath.Join("html", fmt.Sprintf("%s-%s%s", base, lang, ext))
-	os.WriteFile(outFile, []byte(strings.Join(translatedLines, "\n")), 0644)
+	if err := dryWriteFile(outFile, []byte(strings.Join(translatedLines, "\n"))); err != nil { // BUGFIX: erro antes era ignorado
+		logVerbose("gravação de %s: %v", outFile, err)
+		fmt.Printf("%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível gravar")), yellow(outFile), err)
+	}
 	updateProgress(lang, len(lines), len(lines), "OK")
 }
 
@@ -629,7 +767,26 @@ func translateMarkdown(inputPath, lang string) {
 	ext := filepath.Ext(inputPath)
 	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
 	outFile := filepath.Join("doc", fmt.Sprintf("%s-%s%s", base, lang, ext))
-	for i, line := range lines {
+
+	// FEATURE: preserva bloco de front-matter YAML (delimitado por "---" logo no início
+	// do arquivo), comum em geradores de site estático (Jekyll, Hugo). Antes, essas linhas
+	// (title:, date:, tags: etc.) eram enviadas ao tradutor como texto comum.
+	startIdx := 0
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		translatedLines = append(translatedLines, lines[0])
+		startIdx = 1
+		for startIdx < len(lines) {
+			translatedLines = append(translatedLines, lines[startIdx])
+			if strings.TrimSpace(lines[startIdx]) == "---" {
+				startIdx++
+				break
+			}
+			startIdx++
+		}
+	}
+
+	for i := startIdx; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inCodeBlock = !inCodeBlock
@@ -648,9 +805,14 @@ func translateMarkdown(inputPath, lang string) {
 		}
 		translated := callUniversalTranslator(textToTranslate, lang)
 		translatedLines = append(translatedLines, prefix+translated)
-		if i%10 == 0 || i == len(lines)-1 { updateProgress(lang, i+1, len(lines), "MD") }
+		if i%10 == 0 || i == len(lines)-1 {
+			updateProgress(lang, i+1, len(lines), "MD")
+		}
 	}
-	os.WriteFile(outFile, []byte(strings.Join(translatedLines, "\n")), 0644)
+	if err := dryWriteFile(outFile, []byte(strings.Join(translatedLines, "\n"))); err != nil { // BUGFIX: erro antes era ignorado
+		logVerbose("gravação de %s: %v", outFile, err)
+		fmt.Printf("%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível gravar")), yellow(outFile), err)
+	}
 	updateProgress(lang, len(lines), len(lines), "OK")
 }
 
@@ -671,7 +833,10 @@ func translatePlaintext(inputPath, lang string) {
 		}
 		if i%10 == 0 || i == len(lines)-1 { updateProgress(lang, i+1, len(lines), "TXT") }
 	}
-	os.WriteFile(outFile, []byte(strings.Join(translatedLines, "\n")), 0644)
+	if err := dryWriteFile(outFile, []byte(strings.Join(translatedLines, "\n"))); err != nil { // BUGFIX: erro antes era ignorado
+		logVerbose("gravação de %s: %v", outFile, err)
+		fmt.Printf("%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível gravar")), yellow(outFile), err)
+	}
 	updateProgress(lang, len(lines), len(lines), "OK")
 }
 
@@ -714,6 +879,17 @@ func translateFile(baseName, lang string) {
 	cleanBase := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 	poTmp := filepath.Join("pot", fmt.Sprintf("%s-temp-%s.po", cleanBase, lang))
 	poFinal := filepath.Join("pot", fmt.Sprintf("%s-%s.po", cleanBase, lang))
+
+	if dryRunFlag {
+		// BUGFIX: antes, mesmo em --dry-run, esta função tentava abrir/gravar o .po de
+		// verdade (e, sem o .pot gerado por setupEnvironment em modo dry-run, isso imprimia
+		// um erro confuso de "não foi possível abrir"). Agora simula sem tocar em disco.
+		logVerbose("[DRY-RUN] pipeline .po simulado para %s (%s); nenhum .po/.mo real seria gerado", cleanBase, lang)
+		updateProgress(lang, 1, 1, "PO")
+		updateProgress(lang, 1, 1, "OK")
+		return
+	}
+
 	stampPotHeader(poTmp, lang)
 
 	file, err := os.Open(poTmp)
@@ -726,10 +902,10 @@ func translateFile(baseName, lang string) {
 	}
 	defer file.Close()
 
-	output, err := os.Create(poFinal)
-	if err != nil {
-		logVerbose("translateFile: falha ao criar %s: %v", poFinal, err)
-		fmt.Printf("%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível criar")), yellow(poFinal), err)
+	output, errCreate := os.Create(poFinal)
+	if errCreate != nil {
+		logVerbose("translateFile: falha ao criar %s: %v", poFinal, errCreate)
+		fmt.Printf("%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível criar")), yellow(poFinal), errCreate)
 		return
 	}
 	defer output.Close()
@@ -839,7 +1015,7 @@ func translateJSON(path, lang string) {
 	}
 
 	outFile := filepath.Join(targetDir, fmt.Sprintf("%s-%s%s", strings.TrimSuffix(filepath.Base(path), ext), lang, ext))
-	if err := os.WriteFile(outFile, out, 0644); err != nil {
+	if err := dryWriteFile(outFile, out); err != nil { // FEATURE (--dry-run)
 		logVerbose("translateJSON: erro gravando %s: %v", outFile, err)
 		fmt.Printf("%s %s '%s' (%s)\n", red(T("ERRO:")), white(T("Não foi possível gravar")), yellow(outFile), err)
 		return
@@ -887,6 +1063,12 @@ func updateProgress(lang string, current, total int, suffix string) {
 }
 
 func prepareMsginit(base, lang string) {
+	if dryRunFlag {
+		// BUGFIX: antes, esta função rodava msginit normalmente mesmo em --dry-run;
+		// agora o .pot nem é gerado (ver setupEnvironment), então nem tenta.
+		logVerbose("[DRY-RUN] msginit simulado para %s (%s)", base, lang)
+		return
+	}
 	cleanBase := strings.TrimSuffix(base, filepath.Ext(base))
 	pot := filepath.Join("pot", cleanBase+".pot")
 	po := filepath.Join("pot", fmt.Sprintf("%s-temp-%s.po", cleanBase, lang))
@@ -901,13 +1083,193 @@ func prepareMsginit(base, lang string) {
 	reportCmdError(fmt.Sprintf("msginit (%s, %s)", cleanBase, lang), err)
 }
 
-func protectVariables(text string) (string, map[string]string) {
+// --- GLOSSÁRIO (FEATURE) ---
+// Formato do arquivo (uma entrada por linha, "#" inicia comentário):
+//   termo                              -> nunca traduz, mantém o termo tal como escrito
+//   termo=tradução_fixa                -> sempre substitui por "tradução_fixa", em qualquer idioma-alvo
+//   termo=en:Product;fr:Produit        -> tradução fixa DIFERENTE por idioma-alvo (BUGFIX)
+//                                          (se o idioma-alvo não tiver entrada, mantém o termo original)
+
+type glossaryEntry struct {
+	term    string            // termo original, como aparece no arquivo de glossário
+	fixed   string            // tradução fixa global; vazio significa "preservar o termo original"
+	perLang map[string]string // BUGFIX: tradução fixa por idioma-alvo ("en:Product;fr:Produit")
+}
+
+type glossaryRule struct {
+	re    *regexp.Regexp
+	entry glossaryEntry
+}
+
+func loadGlossary(path string) error {
+	glossary = make(map[string]glossaryEntry)
+	glossaryRules = nil
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		term := strings.TrimSpace(parts[0])
+		if term == "" {
+			continue
+		}
+		fixed := ""
+		var perLang map[string]string
+		if len(parts) == 2 {
+			val := strings.TrimSpace(parts[1])
+			// BUGFIX: antes "termo=tradução" era sempre global (mesma tradução para
+			// TODOS os idiomas-alvo). Agora também aceita "termo=idioma:trad;idioma2:trad2"
+			// para traduções fixas específicas por idioma.
+			if strings.Contains(val, ":") {
+				perLang = make(map[string]string)
+				for _, pair := range strings.Split(val, ";") {
+					kv := strings.SplitN(pair, ":", 2)
+					if len(kv) != 2 {
+						continue
+					}
+					lc := strings.ToLower(strings.TrimSpace(kv[0]))
+					tv := strings.TrimSpace(kv[1])
+					if lc != "" {
+						perLang[lc] = tv
+					}
+				}
+				if len(perLang) == 0 {
+					fixed = val // nenhum par válido: trata como tradução fixa global
+					perLang = nil
+				}
+			} else {
+				fixed = val
+			}
+		}
+		entry := glossaryEntry{term: term, fixed: fixed, perLang: perLang}
+		glossary[strings.ToLower(term)] = entry
+		// BUGFIX: `\b` do RE2 só reconhece [0-9A-Za-z_] como "caractere de palavra",
+		// então termos que começam/terminam com letra acentuada (café, ação, não)
+		// podiam falhar silenciosamente. Capturamos a fronteira esquerda no grupo 1 e
+		// checamos a fronteira direita manualmente (via runas Unicode) em applyGlossaryRule,
+		// sem consumir o caractere seguinte no match.
+		re, errRe := regexp.Compile(`(?i)(^|[^\p{L}\p{N}_])(` + regexp.QuoteMeta(term) + `)`)
+		if errRe != nil {
+			logVerbose("loadGlossary: termo ignorado (regex inválida) %q: %v", term, errRe)
+			continue
+		}
+		glossaryRules = append(glossaryRules, glossaryRule{re: re, entry: entry})
+	}
+	return scanner.Err()
+}
+
+// resolveGlossaryTranslation resolve a tradução fixa de uma entrada do glossário para um
+// idioma-alvo específico. BUGFIX: antes "termo=tradução" era global; agora prioriza uma
+// tradução específica de idioma, se houver, com fallback para o prefixo do idioma
+// (ex: "pt" cobre "pt_BR") e depois para a tradução global. Retorna "" se não houver
+// nenhuma tradução fixa aplicável (chamador deve então preservar o termo original).
+func resolveGlossaryTranslation(entry glossaryEntry, lang string) string {
+	if entry.perLang != nil {
+		normLang := strings.ToLower(strings.ReplaceAll(lang, "-", "_"))
+		if v, ok := entry.perLang[normLang]; ok {
+			return v
+		}
+		if idx := strings.IndexAny(normLang, "_-"); idx > 0 {
+			if v, ok := entry.perLang[normLang[:idx]]; ok {
+				return v
+			}
+		}
+	}
+	return entry.fixed
+}
+
+// glossaryExactMatch resolve o caso em que o TEXTO INTEIRO enviado a traduzir é
+// exatamente um termo do glossário (comum em valores de JSON/YAML e msgids curtos).
+func glossaryExactMatch(text, lang string) (string, bool) {
+	if len(glossary) == 0 {
+		return "", false
+	}
+	entry, ok := glossary[strings.ToLower(strings.TrimSpace(text))]
+	if !ok {
+		return "", false
+	}
+	if v := resolveGlossaryTranslation(entry, lang); v != "" {
+		return v, true
+	}
+	return entry.term, true
+}
+
+// isWordRune define o que conta como "caractere de palavra" para fins de fronteira,
+// usando classes Unicode (letras/dígitos de qualquer idioma), diferente do `\b` do RE2
+// que só reconhece ASCII e falha com termos acentuados.
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// protectGlossaryTerms protege ocorrências de termos do glossário DENTRO de um texto
+// maior (ex: um termo de produto no meio de uma frase de documentação), usando o
+// mesmo mecanismo de placeholders do protectVariables.
+func protectGlossaryTerms(text, lang string, placeholders map[string]string) string {
+	if len(glossaryRules) == 0 {
+		return text
+	}
+	idx := 0
+	for _, rule := range glossaryRules {
+		text = applyGlossaryRule(rule, text, lang, placeholders, &idx)
+	}
+	return text
+}
+
+// applyGlossaryRule aplica uma regra de glossário a todo o texto, validando a fronteira
+// direita manualmente (sem consumir o caractere seguinte no match), o que corrige o
+// problema do `\b` com termos que terminam em letra acentuada.
+func applyGlossaryRule(rule glossaryRule, text, lang string, placeholders map[string]string, idx *int) string {
+	matches := rule.re.FindAllStringSubmatchIndex(text, -1)
+	if matches == nil {
+		return text
+	}
+	var sb strings.Builder
+	last := 0
+	for _, m := range matches {
+		// m[0]:m[1] = match inteiro (fronteira esquerda + termo); m[4]:m[5] = só o termo
+		termStart, termEnd := m[4], m[5]
+		if termStart < last {
+			continue // já coberto por um match anterior nesta mesma passada
+		}
+		if termEnd < len(text) {
+			r, _ := utf8.DecodeRuneInString(text[termEnd:])
+			if isWordRune(r) {
+				continue // caractere seguinte é de palavra: não é uma fronteira real
+			}
+		}
+		sb.WriteString(text[last:termStart])
+		p := fmt.Sprintf("CHILI_GLOSS_%d_CHILI", *idx)
+		*idx++
+		replacement := resolveGlossaryTranslation(rule.entry, lang)
+		if replacement == "" {
+			replacement = text[termStart:termEnd] // preserva a capitalização original
+		}
+		placeholders[p] = replacement
+		sb.WriteString(p)
+		last = termEnd
+	}
+	sb.WriteString(text[last:])
+	return sb.String()
+}
+
+func protectVariables(text, lang string) (string, map[string]string) {
 	// BUGFIX (BUG-10): `%[a-z]` só cobria especificadores simples (%s, %d) e deixava passar
 	// variantes com flags/largura/precisão (%.2f, %5d, %-10s) e maiúsculas (%S) sem proteção.
-	re := regexp.MustCompile(`(\$\{[A-Za-z0-9_.]+\}|\$[A-Za-z0-9_.]+|%[-+ 0#]*[0-9]*(?:\.[0-9]+)?[a-zA-Z]|!\[.*?\]\(.*?\)|\[.*?\]\(.*?\)|https?://[^\s]+)`)
+	re := regexp.MustCompile(`(\$\{[A-Za-z0-9_.]+\}|\$[A-Za-z0-9_.]+|%[-+ 0#]*[0-9]*(?:\.[0-9]+)?[a-zA-Z]|` + "`[^`\\n]+`" + `|!\[.*?\]\(.*?\)|\[.*?\]\(.*?\)|https?://[^\s]+)`)
 	placeholders := make(map[string]string)
-	protected := text
-	matches := re.FindAllString(text, -1)
+	// FEATURE (glossário): protege termos do glossário antes de qualquer outra proteção,
+	// para que nunca sejam enviados ao motor de tradução.
+	protected := protectGlossaryTerms(text, lang, placeholders)
+	matches := re.FindAllString(protected, -1)
 	for i, match := range matches {
 		p := fmt.Sprintf("CHILI_REF_%d_CHILI", i)
 		placeholders[p] = match
@@ -1041,6 +1403,23 @@ func checkDependencies() {
 	os.Exit(1)
 }
 
+// setupSignalHandler garante que o cache seja salvo em disco caso o usuário interrompa
+// a execução (Ctrl+C / SIGINT) ou o processo receba SIGTERM. Sem isso, uma execução
+// longa interrompida no meio perderia todas as traduções já obtidas naquela sessão
+// (o defer saveCache() de main() não é executado quando o processo é encerrado por sinal).
+func setupSignalHandler() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		muConsole.Lock()
+		fmt.Fprintf(os.Stderr, "\n%s %s (%v)\n", yellow(T("[AVISO]")), white(T("Interrompido — salvando cache antes de encerrar...")), sig)
+		muConsole.Unlock()
+		saveCache()
+		os.Exit(130)
+	}()
+}
+
 func loadCache() {
 	cacheData = make(map[string]map[string]CacheEntry)
 	file, err := os.ReadFile(cacheFile)
@@ -1113,14 +1492,21 @@ func showQuickStats(start time.Time) {
 	// BUGFIX (BUG-07): usar contadores por-arquivo, não os totais globais acumulados
 	// de todos os arquivos já processados na mesma execução.
 	hits := atomic.LoadInt64(&fileCacheHits)
-	net := atomic.LoadInt64(&fileNetCalls)
-	total := hits + net
-	pCache, pNet := 0.0, 0.0
+	netVal := atomic.LoadInt64(&fileNetCalls) // BUGFIX: antes se chamava 'net', sombreando o pacote "net" importado
+	gloss := atomic.LoadInt64(&fileGlossaryHits)
+	total := hits + netVal + gloss // BUGFIX: antes não incluía acertos de glossário no total
+	pCache, pNet, pGloss := 0.0, 0.0, 0.0
 	if total > 0 {
 		pCache = (float64(hits) / float64(total)) * 100
-		pNet = (float64(net) / float64(total)) * 100
+		pNet = (float64(netVal) / float64(total)) * 100
+		pGloss = (float64(gloss) / float64(total)) * 100
 	}
-	fmt.Printf("\n\n%s %s em %v | %s %d (%.2f%%) | %s %d (%.2f%%) | %s %d\n", green("✔"), white(T("Concluído")), time.Since(start).Round(time.Second), blue(T("Cache:")), hits, pCache, yellow(T("Net:")), net, pNet, white(T("Total:")), total)
+	fmt.Printf("\n\n%s %s em %v | %s %d (%.2f%%) | %s %d (%.2f%%) | %s %d (%.2f%%) | %s %d\n",
+		green("✔"), white(T("Concluído")), time.Since(start).Round(time.Second),
+		blue(T("Cache:")), hits, pCache,
+		yellow(T("Net:")), netVal, pNet,
+		magenta(T("Glossário:")), gloss, pGloss,
+		white(T("Total:")), total)
 }
 
 func showFinalSummary(start time.Time) {
@@ -1131,6 +1517,9 @@ func showFinalSummary(start time.Time) {
 	fmt.Printf("    → %-15s: %v\n", T("Tempo Total"), time.Since(start).Round(time.Second))
 	fmt.Printf("    → %-15s: %d\n", T("Cache Hits"), atomic.LoadInt64(&cacheHits))
 	fmt.Printf("    → %-15s: %d\n", T("Chamadas Rede"), atomic.LoadInt64(&netCalls))
+	if g := atomic.LoadInt64(&glossaryHits); g > 0 {
+		fmt.Printf("    → %-15s: %d\n", T("Acertos Glossário"), g)
+	}
 	if atomic.LoadInt32(&failedCalls) > 0 {
 		fmt.Printf("    → %-15s: %s\n", T("Falhas"), red(atomic.LoadInt32(&failedCalls)))
 	}
@@ -1168,6 +1557,8 @@ func usage() {
 		{"", "--self", T("Extração especializada para o próprio chili-tradutor-go")},
 		{"", "--self-test", T("Executa auto-teste de integridade")},
 		{"", "--clean-cache", T("Remove entradas de cache não usadas há 30 dias")},
+		{"", "--dry-run", T("Simula a execução sem chamadas de rede nem gravação de arquivos")},
+		{"", "--glossary", T("Arquivo de termos protegidos (termo | termo=tradução | termo=en:x;fr:y)")},
 		{"-q", "--quiet", T("Modo silencioso")},
 		{"-v", "--verbose", T("Mostrar detalhes")},
 		{"-V", "--version", T("Mostra a versão do programa")},

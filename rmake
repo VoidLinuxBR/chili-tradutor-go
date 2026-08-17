@@ -335,29 +335,50 @@ set_varcolors
 
 ##########################################################################################################
 
-out="${2:-${1%.go}}"
-msg "Compiling : ${cyan}$1"
-msg "Out       : ${cyan}${out}"
+#!/bin/bash
+src="$1"
+out="${2:-${src%.go}}"
 
-if ! gofmt -l "$1" ; then
-  exit 0
+# Se o nome do arquivo fonte tiver sufixo de versão (ex: chili-tradutor-go-v2.1.25.go),
+# cria um link simbólico para o nome canônico (sem versão, ex: chili-tradutor-go.go) e
+# usa esse link nos passos seguintes de compilação. Isso mantém os comentários
+# "#: arquivo:linha" gerados pelo xgettext estáveis entre versões, em vez de mudar toda
+# vez que o nome do arquivo-fonte muda por causa do número de versão.
+#
+# app_name: nome do programa SEM versão e SEM extensão .go (ex: "chili-tradutor-go"),
+# disponível nos dois casos (com ou sem sufixo de versão no arquivo de entrada).
+srcbase="$(basename "$src" .go)"
+srcdir="$(dirname "$src")"
+if [[ $srcbase =~ ^(.+)-v?[0-9]+(\.[0-9]+)*$ ]]; then
+	app_name="${BASH_REMATCH[1]}"
+	canonical_name="${app_name}.go"
+	canonical_path="$srcdir/$canonical_name"
+	ln -sf "$(basename "$src")" "$canonical_path"
+	msg "Link      : ${cyan}${canonical_path} -> $(basename "$src")"
+	src="$canonical_path"
+else
+	app_name="$srcbase"
 fi
 
-if go build -o "$out" "$1"; then
-  msg "Build     : ${green}OK"
-  ls -la --color=auto "$out"
-  mkdir -p pot/
-  xgettext --verbose \
-    --from-code=UTF-8 \
-    --language=C \
-    --keyword=T \
-    --no-wrap -o pot/chili-tradutor-go.pot "$1"
-  mkdir -p usr/local/bin/
-  bin_name="${out##*/}"
-  [[ $bin_name =~ ^(.+)-v?[0-9][0-9.]*$ ]] && bin_name="${BASH_REMATCH[1]}"
-  strip -sv "$out"
-  cp -v "$out" usr/local/bin/$bin_name
-  sudo cp -v "$out" /usr/local/bin/$bin_name
+msg "Compiling : ${cyan}$src"
+msg "Out       : ${cyan}${out}"
+if ! gofmt -l "$src" ; then
+  exit 0
+fi
+if go build -o "$out" "$src"; then
+   msg "Build     : ${green}OK"
+   ls -la --color=auto "$out"
+   mkdir -p pot/
+   xgettext --verbose \
+     --from-code=UTF-8 \
+     --language=C \
+     --keyword=T \
+     --no-wrap -o "pot/${app_name}.pot" "$src"
+   mkdir -p usr/local/bin/
+   bin_name="$app_name"
+   strip -sv "$out"
+   cp -v "$out" usr/local/bin/$bin_name
+   sudo cp -v "$out" /usr/local/bin/$bin_name
 else
-  msg "Build     : ${red}FAILED"
+   msg "Build     : ${red}FAILED"
 fi
